@@ -1,0 +1,29 @@
+library identifier: 'scrapworks@main', retriever: modernSCM([
+  $class: 'GitSCMSource',
+  remote: 'https://github.com/glingis/scrapworks.git'
+])
+
+pipeline {
+  agent any
+
+  stages {
+    stage('Run Python Script') {
+      steps {
+        script {
+          runPythonScript('''
+          {
+            "pythonSourceFolder": ".",
+            "scriptToRun": "helloworld.py",
+            "environmentInstalledCheck": "runtime",
+            "pythonVersion": "/home/gistest/WebServices/python/usr/local/bin/python3",
+            "requiredPackages": [
+              "-r updated_req_main_runner_linux_for_py314.txt"
+            ],
+            "cleanupEnvironment": true
+          }
+          ''')
+        }
+      }
+    }
+  }
+}
