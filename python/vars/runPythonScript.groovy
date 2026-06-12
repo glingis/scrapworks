@@ -5,8 +5,7 @@ def call(def configInput) {
     validateConfig(config)
 
     def pythonSourceFolder = config.pythonSourceFolder
-    def scriptToRun = config.scriptToRun
-    def environmentInstalledCheck = config.environmentInstalledCheck
+    def environmentPath = config.environmentPath ?: config.environmentInstalledCheck
     def pythonVersion = config.pythonVersion
     def requiredPackages = (config.requiredPackages ?: []) as List
     def cleanupEnvironment = config.containsKey('cleanupEnvironment') ? config.cleanupEnvironment : true
@@ -15,14 +14,17 @@ def call(def configInput) {
         "uv pip install ${pkg.toString().trim()}"
     }.join('\n')
 
+    env.PYTHON_SOURCE_FOLDER = pythonSourceFolder
+    env.PYTHON_ENV_PATH = environmentPath
+    env.PYTHON_BIN = pythonVersion
+    env.PYTHON_CLEANUP_ENVIRONMENT = cleanupEnvironment ? 'true' : 'false'
+
     def shellScript = """#!/usr/bin/env bash
 set -euo pipefail
 
 PYTHON_SOURCE_FOLDER=${shellQuote(pythonSourceFolder)}
-SCRIPT_TO_RUN=${shellQuote(scriptToRun)}
-ENVIRONMENT_INSTALLED_CHECK=${shellQuote(environmentInstalledCheck)}
+PYTHON_ENV_PATH=${shellQuote(environmentPath)}
 PYTHON_BIN=${shellQuote(pythonVersion)}
-CLEANUP_ENVIRONMENT=${cleanupEnvironment ? 'true' : 'false'}
 
 cd \"${WORKSPACE}\"
 
@@ -39,33 +41,26 @@ fi
 ACTUAL_PYTHON_VERSION=\"$($PYTHON_BIN --version 2>&1)\"
 echo \"Using $ACTUAL_PYTHON_VERSION\"
 
-if [ -d \"$ENVIRONMENT_INSTALLED_CHECK\" ]; then
-  echo \"Existing environment detected at $ENVIRONMENT_INSTALLED_CHECK\"
+if [ -d \"$PYTHON_ENV_PATH\" ]; then
+  echo \"Existing environment detected at $PYTHON_ENV_PATH\"
 else
-  echo \"Creating environment at $ENVIRONMENT_INSTALLED_CHECK\"
-  uv venv --python \"$PYTHON_BIN\" \"$ENVIRONMENT_INSTALLED_CHECK\"
+  echo \"Creating environment at $PYTHON_ENV_PATH\"
+  uv venv --python \"$PYTHON_BIN\" \"$PYTHON_ENV_PATH\"
 fi
 
 # shellcheck disable=SC1091
-source \"$ENVIRONMENT_INSTALLED_CHECK/bin/activate\"
+source \"$PYTHON_ENV_PATH/bin/activate\"
 
 cd \"$PYTHON_SOURCE_FOLDER\"
 
 ${packageInstallCommands}
 
-python3 \"$SCRIPT_TO_RUN\"
-
 deactivate || true
 
-echo \"Deactivated Virtual Env\"
-
-if [ \"$CLEANUP_ENVIRONMENT\" = \"true\" ]; then
-  rm -rf \"${WORKSPACE}/$ENVIRONMENT_INSTALLED_CHECK\"
-  echo \"Removed virtual environment at $ENVIRONMENT_INSTALLED_CHECK\"
-fi
+echo \"Python environment setup complete\"
 """
 
-    sh(label: 'Run Python with uv virtual environment', script: shellScript)
+    sh(label: 'Setup Python environment', script: shellScript)
 }
 
 def normalizeConfig(def configInput) {
@@ -83,8 +78,6 @@ def normalizeConfig(def configInput) {
 def validateConfig(Map config) {
     def requiredKeys = [
         'pythonSourceFolder',
-        'scriptToRun',
-        'environmentInstalledCheck',
         'pythonVersion',
         'requiredPackages'
     ]
@@ -93,6 +86,10 @@ def validateConfig(Map config) {
         if (!config.containsKey(key) || config[key] == null || config[key].toString().trim().isEmpty()) {
             error("Missing required config field: ${key}")
         }
+    }
+
+    if (!config.environmentPath && !config.environmentInstalledCheck) {
+        error('Missing required config field: environmentPath')
     }
 
     if (!(config.requiredPackages instanceof List)) {
